@@ -1,0 +1,175 @@
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE Supervisor_giro.ResumenNomina 
+	@FechaIni DATETIME,
+	@FechaFin DATETIME,
+	@Puesto VARCHAR (300),
+	@Departamento VARCHAR (MAX),
+	@Sucursal VARCHAR(300),
+	@Patron VARCHAR (300),
+	@Prestaciones VARCHAR (300),
+	@Turno VARCHAR (300),
+	@TipoNomina VARCHAR(MAX),
+	@CentroCosto VARCHAR (300),
+	---------------------------------
+	@PERIODO NUMERIC
+AS
+BEGIN
+
+    IF (@FechaIni IS NULL AND @FechaFin IS NOT NULL) 
+    BEGIN
+	    SET @FechaIni = DATEADD(Year, -1, @FechaFin)
+    END
+    IF (@FechaIni IS NOT NULL AND @FechaFin IS NULL) 
+    BEGIN
+	    Set @FechaFin = DATEADD(Year, +1, @FechaIni)
+    END
+   
+
+    DECLARE 
+	   @SELECTOR_MONTO NVARCHAR(MAX), 
+	   @CONCEPTO VARCHAR(25),
+	   @COLUMNA VARCHAR(25)
+	   
+
+    IF object_id('tempdb..#MONTO') > 0 
+    BEGIN
+	   DROP TABLE #MONTO
+    END
+    
+    CREATE TABLE #MONTO (
+	   CLAVE char(10),
+	   FECHA datetime,
+	   TIPO_NOMINA char(10),
+	   PERIODO numeric(18, 0),
+	   MES_DE_ACUMULACION char(5),
+	   NOMBRE char(50),
+	   ESTATUS char(10),
+	   CLAVE_REGISTRO_PATRONAL char(10),
+	   REGISTRO_PATRONAL char(50),
+	   CLAVE_SUCURSAL char(10),
+	   SUCURSAL char(50),
+	   CLAVE_DEPTO char(10),
+	   DEPTO char(50),
+	   CLAVE_PUESTO char(10),
+	   PUESTO char(50),
+	   CLAVE_TURNO char(10),
+	   TURNO char(50),
+	   BANCO char(50),
+	   CTA_TARJETA char(20),
+	   CLABE_INTERBANCARIA char(18),
+	   FECHA_PAGO datetime,
+	   FECHA_CALCULO datetime,
+	   HORA_CALCULO char(15),
+	   USUARIO_GIRO char(20),
+	   -------------------------    
+	   DESCRIPCION VARCHAR(80),
+	   CONCEPTO VARCHAR(25),
+	   MONTO MONEY
+    )
+
+    DECLARE CONCEPTO_DESCRIPCION CURSOR FOR
+	   SELECT
+		  COLUMN_NAME AS CONCEPTO
+	   FROM INFORMATION_SCHEMA.COLUMNS
+	   WHERE TABLE_SCHEMA = 'Supervisor_giro' 
+	   AND TABLE_NAME = 'EMP_NOMINAS' 
+	   AND COLUMN_NAME LIKE '%CON_%'
+
+    OPEN CONCEPTO_DESCRIPCION  
+    FETCH NEXT FROM CONCEPTO_DESCRIPCION INTO @CONCEPTO      
+
+    WHILE @@FETCH_STATUS = 0  
+    BEGIN 
+
+	   DECLARE @DESCRIPCION VARCHAR(80) 
+	   DECLARE @TIPO_CONCEPTO VARCHAR(10)
+	   DECLARE @QUERY NVARCHAR(MAX)
+	   DECLARE @FILTROS NVARCHAR(MAX)
+	   DECLARE @WHERE NVARCHAR(MAX)
+        
+        
+	   SET @DESCRIPCION = (SELECT DESCRIPCION 
+					   FROM SUPERVISOR_GIRO.CONCEPTONOMINA 
+					   WHERE CLAVE = SUBSTRING( @CONCEPTO, CHARINDEX('_', @CONCEPTO)+1 , LEN(@CONCEPTO)-CHARINDEX('-', @CONCEPTO) ) )
+        SET @TIPO_CONCEPTO = (SELECT TIPO_CONCEPTO 
+					   FROM SUPERVISOR_GIRO.CONCEPTONOMINA 
+					   WHERE CLAVE = SUBSTRING( @CONCEPTO, CHARINDEX('_', @CONCEPTO)+1 , LEN(@CONCEPTO)-CHARINDEX('-', @CONCEPTO) ) )
+					        
+	   SET @FILTROS = ''
+	   IF ( (LEN(@TipoNomina) > 0) AND (LEN(@FILTROS) = 0) ) 
+	   BEGIN		
+		  SET @FILTROS = @FILTROS + ' TIPO_NOMINA IN ('+@TipoNomina+')'   
+	   END
+	   
+	   IF ( (LEN(@PERIODO) > 0) AND (LEN(@FILTROS) > 0))
+	   BEGIN		
+		  SET @FILTROS = @FILTROS + ' AND PERIODO IN ('+CONVERT (VARCHAR(20), @PERIODO)+')'  
+	   END
+	   ELSE
+	   BEGIN		
+		  SET @FILTROS = @FILTROS + ' PERIODO IN ('+CONVERT (VARCHAR(20), @PERIODO)+')'  
+	   END
+	   
+	   IF ( (LEN(@FechaIni) > 0) AND (LEN(@FechaFin) > 0) AND (LEN(@FILTROS) > 0))
+	   BEGIN
+			
+		  SET @FILTROS = @FILTROS + ' AND FECHA BETWEEN '''+CONVERT (VARCHAR(10), @FechaIni, 112)+''' AND '''+CONVERT (VARCHAR(10), @FechaFin, 112)+'''' 
+	   END
+	   ELSE
+	   BEGIN		
+		  SET @FILTROS = @FILTROS + ' FECHA BETWEEN '''+CONVERT (VARCHAR(10), @FechaIni, 112)+'''AND '''+CONVERT (VARCHAR(10), @FechaFin, 112)+''''  
+	   END
+	   
+	   
+	   SET @WHERE = 'WHERE '+@FILTROS
+	   
+						  
+		  
+	   SET @SELECTOR_MONTO = 'INSERT INTO #MONTO SELECT  
+						  CLAVE,
+						  FECHA,
+						  TIPO_NOMINA,
+						  PERIODO,
+						  MES_DE_ACUMULACION,
+						  NOMBRE,
+						  ESTATUS,
+						  CLAVE_REGISTRO_PATRONAL,
+						  REGISTRO_PATRONAL,
+						  CLAVE_SUCURSAL,
+						  SUCURSAL,
+						  CLAVE_DEPTO,
+						  DEPTO,
+						  CLAVE_PUESTO,
+						  PUESTO,
+						  CLAVE_TURNO,
+						  TURNO,
+						  BANCO,
+						  CTA_TARJETA,
+						  CLABE_INTERBANCARIA,
+						  FECHA_PAGO,
+						  FECHA_CALCULO,
+						  HORA_CALCULO,
+						  USUARIO_GIRO,
+						  '''+@DESCRIPCION+''' AS [DESCRIPCION], 
+						  '''+@CONCEPTO+''' AS [CONCEPTO], 
+						  ISNULL('+@CONCEPTO+',0) AS MONTO
+						  FROM Supervisor_giro.EMP_NOMINAS '
+						  +@WHERE
+						  PRINT @SELECTOR_MONTO
+						  
+						 
+						  
+	   EXECUTE sp_sqlexec @SELECTOR_MONTO
+       
+	   FETCH NEXT FROM CONCEPTO_DESCRIPCION INTO @CONCEPTO 
+    END  
+
+    CLOSE CONCEPTO_DESCRIPCION  
+    DEALLOCATE CONCEPTO_DESCRIPCION
+    
+    SELECT * FROM #MONTO
+END
+GO
